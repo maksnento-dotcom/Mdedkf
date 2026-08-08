@@ -9,7 +9,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 
 # ВСТАВЬ СВОЙ ТОКЕН МЕЖДУ КАВЫЧЕК
-TOKEN = "8725576726:AAH1Ey6ZFK4DFB5pBYPfoYwRzV-vMScsjNI"
+TOKEN = "8725576726:AAG8qfH0hzkM_Z7EpVJKw8t-WZm0lJbmiGs"
 
 KILLCOOLDOWN = 3600 
 

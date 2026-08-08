@@ -1,4 +1,4 @@
-import asyncio
+iimport asyncio
 import logging
 import random
 import sqlite3
@@ -151,23 +151,31 @@ async def armiescmd(message: types.Message):
         
     await message.answer(text)
 
-# Веб-сервер для обмана Render (чтобы не усыплял бота)
+# Независимый сервер для пинга
 async def handle_ping(request):
-    return web.Response(text="Bot is alive!")
+    return web.Response(text="Bot is running!")
 
-async def start_web_server():
+async def run_bot():
+    await dp.start_polling(bot)
+
+async def run_web():
     app = web.Application()
     app.router.add_get('/', handle_ping)
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get("PORT", 10000))
-    site = web.TCPSite(runner, "0.00.0000", port)
+    site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
+    # Бесконечно удерживаем сервер
+    await asyncio.Event().wait()
 
 async def main():
     logging.basicConfig(level=logging.INFO)
-    await start_web_server()
-    await dp.start_polling(bot)
+    # Запускаем бота и веб-сервер параллельно в двух независимых задачах
+    await asyncio.gather(
+        run_web(),
+        run_bot()
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())

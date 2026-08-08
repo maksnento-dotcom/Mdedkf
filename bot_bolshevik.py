@@ -9,7 +9,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.client.session.aiohttp import AiohttpSession
 
-TOKEN = "8725576726:AAE0XMB8k5Po1hyGUamhCGrMq1USs7aZ_EA"
+TOKEN = 8725576726:AAHiEy6ZFK4DfB5pBYPfcYwRzV-vMScsjNI
 
 KILLCOOLDOWN = 3600 
 

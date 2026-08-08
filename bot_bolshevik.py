@@ -11,7 +11,6 @@ from aiogram.client.session.aiohttp import AiohttpSession
 
 TOKEN = "8725576726:AAH1Ey6ZFK4DFB5pBYPfoYwRzV-vMScsjNI"
 
-
 KILLCOOLDOWN = 3600 
 
 session = AiohttpSession()
@@ -90,7 +89,7 @@ async def killcmd(message: types.Message):
             minutes = (timeleft % 3600) // 60
             timestr = f"{hours} ч. {minutes} мин."
         elif timeleft >= 60:
-            minutes = timeleft // 60
+            minutes = timeleft// 60
             seconds = timeleft % 60
             timestr = f"{minutes} мин. {seconds} сек."
         else:
@@ -152,7 +151,6 @@ async def armiescmd(message: types.Message):
         
     await message.answer(text)
 
-# Независимый сервер для пинга
 async def handle_ping(request):
     return web.Response(text="Bot is running!")
 
@@ -167,12 +165,10 @@ async def run_web():
     port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    # Бесконечно удерживаем сервер
     await asyncio.Event().wait()
 
 async def main():
     logging.basicConfig(level=logging.INFO)
-    # Запускаем бота и веб-сервер параллельно в двух независимых задачах
     await asyncio.gather(
         run_web(),
         run_bot()

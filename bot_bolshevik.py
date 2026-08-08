@@ -7,14 +7,13 @@ import os
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.client.session.aiohttp import AiohttpSession
 
-TOKEN = "8725576726:AAHiEy6ZFK4DfB5pBYPfcYwRzV-vMScsjNI"
+# ВСТАВЬ СВОЙ ТОКЕН МЕЖДУ КАВЫЧЕК
+TOKEN = "8725576726:AAH1Ey6ZFK4DFB5pBYPfoYwRzV-vMScsjNI"
 
 KILLCOOLDOWN = 3600 
 
-session = AiohttpSession()
-bot = Bot(token=TOKEN, session=session)
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 conn = sqlite3.connect("bolsheviks.db")
@@ -89,7 +88,7 @@ async def killcmd(message: types.Message):
             minutes = (timeleft % 3600) // 60
             timestr = f"{hours} ч. {minutes} мин."
         elif timeleft >= 60:
-            minutes = timeleft// 60
+            minutes = timeleft // 60
             seconds = timeleft % 60
             timestr = f"{minutes} мин. {seconds} сек."
         else:
@@ -152,12 +151,11 @@ async def armiescmd(message: types.Message):
     await message.answer(text)
 
 async def handle_ping(request):
-    return web.Response(text="Bot is running!")
+    return web.Response(text="Bot is active")
 
-async def run_bot():
-    await dp.start_polling(bot)
-
-async def run_web():
+async def main():
+    logging.basicConfig(level=logging.INFO)
+    
     app = web.Application()
     app.router.add_get('/', handle_ping)
     runner = web.AppRunner(app)
@@ -165,14 +163,9 @@ async def run_web():
     port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    await asyncio.Event().wait()
-
-async def main():
-    logging.basicConfig(level=logging.INFO)
-    await asyncio.gather(
-        run_web(),
-        run_bot()
-    )
+    logging.info(f"Web server started on port {port}")
+    
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())

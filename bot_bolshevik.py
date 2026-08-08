@@ -3,6 +3,8 @@ import logging
 import random
 import sqlite3
 import time
+import os
+from aiohttp import web
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -149,9 +151,23 @@ async def armiescmd(message: types.Message):
         
     await message.answer(text)
 
-async def startbot():
+# Веб-сервер для обмана Render (чтобы не усыплял бота)
+async def handle_ping(request):
+    return web.Response(text="Bot is alive!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.00.0000", port)
+    await site.start()
+
+async def main():
     logging.basicConfig(level=logging.INFO)
+    await start_web_server()
     await dp.start_polling(bot)
 
-import sys
-asyncio.run(startbot())
+if __name__ == "__main__":
+    asyncio.run(main())

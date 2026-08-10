@@ -334,8 +334,9 @@ async def processbuy(callbackquery: types.CallbackQuery):
             return
         cursor.execute(f"UPDATE killers SET coins = coins - {P}, shields = shields + 1 WHERE userid = {P}", (shield_price, userid))
         conn.commit()
-        await callbackquery.answer("🛡 Куплен 1 Щит!", show_alert=True)
-        elif item == "batk":
+        await callbackquery.answer("🛡 Куплен 1 Щит!", show_alert=True) 
+    
+    elif item == "batk":
         if coins < boost_price:
             await callbackquery.answer(f"❌ Не хватает монет!", show_alert=True)
             return

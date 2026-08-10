@@ -10,8 +10,8 @@ from aiogram.filters import Command
 from aiogram.types import BotCommand
 from aiogram.enums import ParseMode
 
-# ВСТАВЬ СЮДА ТОКЕН
-TOKEN = "8725576726:AAFHu7OsEKnLMvXLo4-xqz4txSFCRRwGb7w"
+# 🔑 ТОКЕН И АДМИН
+TOKEN = "7670984180:AAGY0R3aA0YyR_q7mY7Y8GkU5U8mN3Zz1xY" # ВСТАВЬ СЮДА СВОЙ НОВЫЙ ТОКЕН
 ADMIN_IDS = [8203948836]
 
 bot = Bot(token=TOKEN)
@@ -23,31 +23,34 @@ if DATABASE_URL:
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
     conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+    conn.autocommit = True  # 👈 Включаем авто-коммит для PostgreSQL!
     is_postgres = True
 else:
     conn = sqlite3.connect("bolsheviks_test.db")
     is_postgres = False
 
 cursor = conn.cursor()
-
-# Универсальный знак авто-замены для БД (%s для PostgreSQL, ? для SQLite)
 P = "%s" if is_postgres else "?"
 
-cursor.execute(f"""
-CREATE TABLE IF NOT EXISTS killers (
-    userid BIGINT PRIMARY KEY, 
-    firstname TEXT, 
-    kills INTEGER DEFAULT 0, 
-    coins INTEGER DEFAULT 0,
-    lastkill BIGINT DEFAULT 0, 
-    army TEXT DEFAULT 'Не выбран',
-    class TEXT DEFAULT 'Пехота',
-    shields INTEGER DEFAULT 0,
-    boost_atk INTEGER DEFAULT 0,
-    boost_coins INTEGER DEFAULT 0
-)
-""")
-conn.commit()
+# Инициализация таблиц
+try:
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS killers (
+        userid BIGINT PRIMARY KEY, 
+        firstname TEXT, 
+        kills INTEGER DEFAULT 0, 
+        coins INTEGER DEFAULT 0,
+        lastkill BIGINT DEFAULT 0, 
+        army TEXT DEFAULT 'Не выбран',
+        class TEXT DEFAULT 'Пехота',
+        shields INTEGER DEFAULT 0,
+        boost_atk INTEGER DEFAULT 0,
+        boost_coins INTEGER DEFAULT 0
+    )
+    """)
+    if not is_postgres: conn.commit()
+except Exception as e:
+    print(f"DB Init Exception: {e}")
 
 def get_rank(kills: int) -> str:
     if kills >= 1500: return "🎖 Генерал"
@@ -176,7 +179,7 @@ async def processclasschoice(callbackquery: types.CallbackQuery):
         cursor.execute(f"INSERT INTO killers (userid, firstname, class) VALUES ({P}, {P}, {P}) ON CONFLICT(userid) DO UPDATE SET firstname = EXCLUDED.firstname, class = EXCLUDED.class", (userid, firstname, newclass))
     else:
         cursor.execute(f"INSERT INTO killers (userid, firstname, class) VALUES ({P}, {P}, {P}) ON CONFLICT(userid) DO UPDATE SET firstname = {P}, class = {P}", (userid, firstname, newclass, firstname, newclass))
-    conn.commit()
+        conn.commit()
     
     await callbackquery.answer(f"Выбран класс: {newclass}!")
     await callbackquery.message.edit_text(f"🪖 Теперь ты сражаешься как: <b>{newclass}</b>!", parse_mode=ParseMode.HTML)
@@ -229,7 +232,7 @@ async def killcmd(message: types.Message):
     if random.randint(1, 100) <= injury_chance:
         if shields > 0:
             cursor.execute(f"UPDATE killers SET shields = shields - 1 WHERE userid = {P}", (userid,))
-            conn.commit()
+            if not is_postgres: conn.commit()
             await message.answer("🛡 <b>Вас пытались ранить в бою!</b> Но ваш Щит принял удар на себя!", parse_mode=ParseMode.HTML)
         else:
             penalty_time = currenttime + 1200
@@ -237,7 +240,7 @@ async def killcmd(message: types.Message):
                 cursor.execute(f"INSERT INTO killers (userid, firstname, lastkill) VALUES ({P}, {P}, {P}) ON CONFLICT(userid) DO UPDATE SET lastkill = EXCLUDED.lastkill", (userid, firstname, penalty_time))
             else:
                 cursor.execute(f"INSERT INTO killers (userid, firstname, lastkill) VALUES ({P}, {P}, {P}) ON CONFLICT(userid) DO UPDATE SET lastkill = {P}", (userid, firstname, penalty_time, penalty_time))
-            conn.commit()
+                conn.commit()
             await message.answer("🩸 <b>ВАШЕ БОЕВОЕ РАНЕНИЕ!</b> +20 минут к кулдауну!", parse_mode=ParseMode.HTML)
             return
 
@@ -262,7 +265,7 @@ async def killcmd(message: types.Message):
 
     if is_postgres:
         cursor.execute(f"""
-            INSERT INTO killers (userid, firstname, kills, coins, lastkill, army, class, boost_atk, boost_coins) 
+            INSERT INTO killers (userid, firstname, kills, coins, lastkill, army, class, boost_atk, boost_coins)
             VALUES ({P}, {P}, {P}, {P}, {P}, {P}, {P}, 0, 0) 
             ON CONFLICT(userid) DO UPDATE SET 
                 firstname = EXCLUDED.firstname, kills = killers.kills + EXCLUDED.kills, coins = killers.coins + EXCLUDED.coins, lastkill = EXCLUDED.lastkill, boost_atk = 0, boost_coins = 0
@@ -274,7 +277,7 @@ async def killcmd(message: types.Message):
             ON CONFLICT(userid) DO UPDATE SET 
                 firstname = {P}, kills = kills + {P}, coins = coins + {P}, lastkill = {P}, boost_atk = 0, boost_coins = 0
         """, (userid, firstname, gainedkills, gainedcoins, currenttime, army, u_class, firstname, gainedkills, gainedcoins, currenttime))
-    conn.commit()
+        conn.commit()
     
     msg_text = f"⚔️ Взмах шашки! Вы зарубили <b>{gainedkills}</b> большевиков!\n💰 Получено монет: <b>+{gainedcoins}</b>"
     if is_drozd_crit: msg_text += "\n🦅 <b>ПСИХИЧЕСКАЯ АТАКА!</b> Дроздовский бафф удвоил ваши фраги!"
@@ -325,7 +328,7 @@ async def processbuy(callbackquery: types.CallbackQuery):
             await callbackquery.answer(f"❌ Не хватает монет!", show_alert=True)
             return
         cursor.execute(f"UPDATE killers SET coins = coins - {P}, lastkill = 0 WHERE userid = {P}", (skip_price, userid))
-        conn.commit()
+        if not is_postgres: conn.commit()
         await callbackquery.answer("✅ Кулдаун сброшен!", show_alert=True)
         
     elif item == "shield":
@@ -333,15 +336,15 @@ async def processbuy(callbackquery: types.CallbackQuery):
             await callbackquery.answer(f"❌ Не хватает монет!", show_alert=True)
             return
         cursor.execute(f"UPDATE killers SET coins = coins - {P}, shields = shields + 1 WHERE userid = {P}", (shield_price, userid))
-        conn.commit()
-        await callbackquery.answer("🛡 Куплен 1 Щит!", show_alert=True) 
-    
+        if not is_postgres: conn.commit()
+        await callbackquery.answer("🛡 Куплен 1 Щит!", show_alert=True)
+        
     elif item == "batk":
         if coins < boost_price:
             await callbackquery.answer(f"❌ Не хватает монет!", show_alert=True)
             return
         cursor.execute(f"UPDATE killers SET coins = coins - {P}, boost_atk = 1 WHERE userid = {P}", (boost_price, userid))
-        conn.commit()
+        if not is_postgres: conn.commit()
         await callbackquery.answer("⚡️ Буст атаки x2 куплен!", show_alert=True)
 
     elif item == "bcoins":
@@ -349,7 +352,7 @@ async def processbuy(callbackquery: types.CallbackQuery):
             await callbackquery.answer(f"❌ Не хватает монет!", show_alert=True)
             return
         cursor.execute(f"UPDATE killers SET coins = coins - {P}, boost_coins = 1 WHERE userid = {P}", (boost_price, userid))
-        conn.commit()
+        if not is_postgres: conn.commit()
         await callbackquery.answer("💰 Буст монет x2 куплен!", show_alert=True)
 
 @dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/attack', 'attack', 'напасть')))
@@ -383,14 +386,14 @@ async def attackcmd(message: types.Message):
 
     if tar_shields > 0:
         cursor.execute(f"UPDATE killers SET shields = shields - 1 WHERE userid = {P}", (target_id,))
-        conn.commit()
+        if not is_postgres: conn.commit()
         await message.answer(f"🛡 <b>НАПАДЕНИЕ ОТБИТО!</b> У <b>{target_name}</b> был ЩИТ!", parse_mode=ParseMode.HTML)
     else:
         currenttime = int(time.time())
         penalty_sec = 600 if tar_army == "Армия КОМУЧа" else 1200
         new_kd = max(currenttime, tar_lastkill) + penalty_sec
         cursor.execute(f"UPDATE killers SET lastkill = {P} WHERE userid = {P}", (new_kd, target_id))
-        conn.commit()
+        if not is_postgres: conn.commit()
         await message.answer(f"⚔️ <b>УСПЕШНАЯ ВЫЛАЗКА!</b> +{penalty_sec // 60} минут к кулдауну <b>{target_name}</b>!", parse_mode=ParseMode.HTML)
 
 @dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/army', 'army', 'армия')))
@@ -419,7 +422,7 @@ async def processarmychoice(callbackquery: types.CallbackQuery):
         cursor.execute(f"INSERT INTO killers (userid, firstname, army) VALUES ({P}, {P}, {P}) ON CONFLICT(userid) DO UPDATE SET firstname = EXCLUDED.firstname, army = EXCLUDED.army", (userid, firstname, armyname))
     else:
         cursor.execute(f"INSERT INTO killers (userid, firstname, army) VALUES ({P}, {P}, {P}) ON CONFLICT(userid) DO UPDATE SET firstname = {P}, army = {P}", (userid, firstname, armyname, firstname, armyname))
-    conn.commit()
+        conn.commit()
     
     await callbackquery.answer(f"Ты вступил в: {armyname}!")
     await callbackquery.message.edit_text(f"⚔️ Отлично! Теперь ты сражаешься за: <b>{armyname}</b>!", parse_mode=ParseMode.HTML)
@@ -463,7 +466,8 @@ async def topcmd(message: types.Message):
 @dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/armies', 'armies', 'армии')))
 async def armiescmd(message: types.Message):
     cursor.execute("SELECT SUM(kills) FROM killers")
-    total_all_kills = cursor.fetchone()[0] or 0
+    row = cursor.fetchone()
+    total_all_kills = row[0] if row and row[0] else 0
 
     cursor.execute("SELECT army, SUM(kills) as totalkills FROM killers WHERE army != 'Не выбран' GROUP BY army ORDER BY totalkills DESC")
     armiestop = cursor.fetchall()
@@ -483,5 +487,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-

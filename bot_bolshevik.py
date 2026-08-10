@@ -11,7 +11,7 @@ from aiogram.types import BotCommand
 from aiogram.enums import ParseMode
 
 # ВСТАВЬ СЮДА ТОКЕН
-TOKEN = "8725576726:AAG8qfH0hzkM_Z7EpVJKw8t-WZm0lJbmiGs"
+TOKEN = "8725576726:AAFHu7OsEKnLMvXLo4-xqz4txSFCRRwGb7w"
 ADMIN_IDS = [8203948836]
 
 bot = Bot(token=TOKEN)

@@ -94,8 +94,7 @@ async def helpcmd(message: types.Message):
         "• <b>Кавалерия:</b> 1-15 фрагов, КД 45 мин, Шанс ранения 10%",
         parse_mode=ParseMode.HTML
     )
-    @dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/profile', 'profile', 'профиль', 'паспорт')))
-async def profilecmd(message: types.Message):
+    @dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/profile', 'profile', 'профиль', 'паспорт')))async def profilecmd(message: types.Message):
     userid = message.from_user.id
     cursor.execute("SELECT kills, coins, army, class, shields, boost_atk, boost_coins FROM killers WHERE userid = ?", (userid,))
     row = cursor.fetchone()

@@ -4,57 +4,552 @@ import random
 import sqlite3
 import time
 import os
-from aiohttp import web
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.types import BotCommand
+from aiogram.enums import ParseMode
 
-TOKEN = 8725576726:AAHiEy6ZFK4DfB5pBYPfcYwRzV-vMScsjNI
+# ВСТАВЬ СЮДА ТОКЕН ТВОЕЙ ТЕСТОВОЙ КУКЛЫ
+TOKEN = "8725576726:AAG8qfH0hzkM_Z7EpVJKw8t-WZm0lJbmiGs"
 
-KILLCOOLDOWN = 3600 
+# 👑 ТВОЙ TELEGRAM ID
+ADMIN_IDS = [8203948836]
 
-session = AiohttpSession()
-bot = Bot(token=TOKEN, session=session)
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-conn = sqlite3.connect("bolsheviks.db")
+# НОВОЕ 
+import psycopg2
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+if DATABASE_URL:
+    # Запуск на Render (PostgreSQL)
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+else:
+    # Запуск локально на ПК (SQLite)
+    conn = sqlite3.connect("bolsheviks_test.db")
+
 cursor = conn.cursor()
 
-cursor.execute("CREATE TABLE IF NOT EXISTS killers (userid INTEGER PRIMARY KEY, firstname TEXT, kills INTEGER DEFAULT 0, lastkill INTEGER DEFAULT 0, army TEXT DEFAULT 'Не выбран')")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS killers (
+    userid INTEGER PRIMARY KEY, 
+    firstname TEXT, 
+    kills INTEGER DEFAULT 0, 
+    coins INTEGER DEFAULT 0,
+    lastkill INTEGER DEFAULT 0, 
+    army TEXT DEFAULT 'Не выбран',
+    class TEXT DEFAULT 'Пехота',
+    shields INTEGER DEFAULT 0,
+    boost_atk INTEGER DEFAULT 0,
+    boost_coins INTEGER DEFAULT 0
+)
+""")
 conn.commit()
 
+# 🎖 Функция расчета звания по фрагам
+def get_rank(kills: int) -> str:
+    if kills >= 1500:
+        return "🎖 Генерал"
+    elif kills >= 920:
+        return "🎖 Полковник"
+    elif kills >= 780:
+        return "🎖 Капитан"
+    elif kills >= 670:
+        return "🎖 Прапорщик"
+    elif kills >= 450:
+        return "🎖 Старший унтер‑офицер"
+    elif kills >= 230:
+        return "🎖 Младший унтер‑офицер"
+    elif kills >= 100:
+        return "🎖 Ефрейтор"
+    else:
+        return "🎖 Рядовой"
+
+async def setup_bot_commands(bot: Bot):
+    commands = [
+        BotCommand(command="start", description="Главное меню"),
+        BotCommand(command="profile", description="Профиль, звание и инвентарь"),
+        BotCommand(command="kill", description="Зарубить большевиков"),
+        BotCommand(command="class", description="Выбрать класс (Пехота/Кавалерия)"),
+        BotCommand(command="shop", description="Магазин предметов"),
+        BotCommand(command="army", description="Выбрать Белую Армию"),
+        BotCommand(command="sostav", description="Состав выбранной армии"),
+        BotCommand(command="top", description="Топ лучших гвардейцев"),
+        BotCommand(command="armies", description="Рейтинг армий"),
+        BotCommand(command="help", description="Справка по игре"),
+    ]
+    await bot.set_my_commands(commands)
+
+# ==================== 🤫 СЕКРЕТНЫЙ АДМИН-БЛОК ====================
+
+@dp.message(Command("give"))
+async def admin_give_coins(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer("⚠️ Использование: /give <количество> [@username]", parse_mode=ParseMode.HTML)
+        return
+
+    try:
+        amount = int(args[1])
+    except ValueError:
+        return
+
+    if len(args) >= 3 and args[2].startswith("@"):
+        username_target = args[2].replace("@", "").lower()
+        cursor.execute("SELECT userid, firstname FROM killers WHERE LOWER(firstname) = ?", (username_target,))
+        row = cursor.fetchone()
+        if not row:
+            await message.answer(f"❌ Игрок @{username_target} не найден!", parse_mode=ParseMode.HTML)
+            return
+        target_id, target_name = row[0], row[1]
+    elif message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        target_name = message.reply_to_message.from_user.first_name
+    else:
+        target_id = message.from_user.id
+        target_name = message.from_user.first_name
+
+    cursor.execute("UPDATE killers SET coins = coins + ? WHERE userid = ?", (amount, target_id))
+    conn.commit()
+
+    clean_name = target_name.replace("<", "&lt;").replace(">", "&gt;")
+    await message.answer(f"👑 <b>СЕКРЕТНЫЙ ПРИКАЗ:</b> Выдано <b>+{amount}</b> монет бойцу <b>{clean_name}</b>!", parse_mode=ParseMode.HTML)
+
+@dp.message(Command("unckd"))
+async def admin_reset_kd(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    args = message.text.split()
+
+    if len(args) >= 2 and args[1].startswith("@"):
+        username_target = args[1].replace("@", "").lower()
+        cursor.execute("SELECT userid, firstname FROM killers WHERE LOWER(firstname) = ?", (username_target,))
+        row = cursor.fetchone()
+        if not row:
+            await message.answer(f"❌ Игрок @{username_target} не найден!", parse_mode=ParseMode.HTML)
+            return
+        target_id, target_name = row[0], row[1]
+    elif message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        target_name = message.reply_to_message.from_user.first_name
+    else:
+        target_id = message.from_user.id
+        target_name = message.from_user.first_name
+
+    cursor.execute("UPDATE killers SET lastkill = 0 WHERE userid = ?", (target_id,))
+    conn.commit()
+
+    clean_name = target_name.replace("<", "&lt;").replace(">", "&gt;")
+    await message.answer(f"⚡️ <b>СЕКРЕТНЫЙ ПРИКАЗ:</b> Кулдаун бойца <b>{clean_name}</b> обнулён!", parse_mode=ParseMode.HTML)
+
+@dp.message(Command("addkills"))
+async def admin_add_kills(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer("⚠️ Использование: /addkills <число> [@username]", parse_mode=ParseMode.HTML)
+        return
+
+    try:
+        amount = int(args[1])
+    except ValueError:
+        return
+
+    if len(args) >= 3 and args[2].startswith("@"):
+        username_target = args[2].replace("@", "").lower()
+        cursor.execute("SELECT userid, firstname FROM killers WHERE LOWER(firstname) = ?", (username_target,))
+        row = cursor.fetchone()
+        if not row:
+            await message.answer(f"❌ Игрок @{username_target} не найден!", parse_mode=ParseMode.HTML)
+            return
+        target_id, target_name = row[0], row[1]
+    elif message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        target_name = message.reply_to_message.from_user.first_name
+    else:
+        target_id = message.from_user.id
+        target_name = message.from_user.first_name
+
+    cursor.execute("UPDATE killers SET kills = kills + ? WHERE userid = ?", (amount, target_id))
+    conn.commit()
+
+    clean_name = target_name.replace("<", "&lt;").replace(">", "&gt;")
+    await message.answer(f"⚔️ <b>СЕКРЕТНЫЙ ПРИКАЗ:</b> Начислено <b>+{amount}</b> фрагов бойцу <b>{clean_name}</b>!", parse_mode=ParseMode.HTML)
+
+# ====================================================================
 @dp.message(Command("start"))
 async def startcmd(message: types.Message):
+    clean_name = message.from_user.first_name.replace("<", "&lt;").replace(">", "&gt;")
     await message.answer(
-        f"Здорово, {message.from_user.first_name}! ⚔️\n\n"
-        "Время очистить земли Белой Армии!\n\n"
-        "Команды:\n"
-        "⚔️ /kill (или 'зарубить') — Пойти в атаку\n"
-        "🚩 /army (или 'армия') — Выбрать свою армию\n"
-        "🏆 /top — Топ главных рубаков\n"
-        "📊 /armies — Рейтинг армий"
+        f"Здарова, {clean_name}! ⚔️\n\n"
+        "Время очистить земли от большевиков!\n\n"
+        "📌 <b>Основные команды:</b>\n"
+        "⚔️ /kill — Пойти в атаку (или 'рубить')\n"
+        "👤 /profile — Профиль и звание (или 'профиль')\n"
+        "🪖 /class — Выбрать класс (Пехота / Кавалерия)\n"
+        "🛒 /shop — Магазин усилений (или 'магазин')\n"
+        "⚔️ /attack @username — Напасть на игрока\n"
+        "🚩 /army — Выбрать Белую Армию (с баффами!)\n"
+        "🏆 /top — Топ лучших рубаков",
+        parse_mode=ParseMode.HTML
     )
 
-@dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/army', 'army', 'армия', 'полк')))
-async def armycmd(message: types.Message):
-    cursor.execute("SELECT army FROM killers WHERE userid = ?", (message.from_user.id,))
-    row = cursor.fetchone()
-    currentarmy = row[0] if row else "Не выбран"
-    
-    kb = types.InlineKeyboardMarkup(
-        inline_keyboard=[
-            [types.InlineKeyboardButton(text="❄️ Армия Колчака", callback_data="set_Армия Колчака")],
-            [types.InlineKeyboardButton(text="⚜️ Армия Деникина", callback_data="set_Армия Деникина")],
-            [types.InlineKeyboardButton(text="🛡 Армия Врангеля", callback_data="set_Армия Врангеля")],
-            [types.InlineKeyboardButton(text="⚔️ Армия Юденича", callback_data="set_Армия Юденича")],
-            [types.InlineKeyboardButton(text="🌲 Армия Миллера", callback_data="set_Армия Миллера")]
-        ]
+@dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/help', 'help', 'помощь', 'хелп')))
+async def helpcmd(message: types.Message):
+    await message.answer(
+        "📖 <b>ИНСТРУКЦИЯ И СПРАВКА ПО ИГРЕ</b>\n\n"
+        "⚔️ <b>Атака (/kill):</b> Зарубите большевиков и получите монеты!\n\n"
+        "🚩 <b>ТАКТИЧЕСКИЕ БАФФЫ АРМИЙ (/army):</b>\n"
+        "• <b>Армия Колчака:</b> -5% к ранению | +10 мин КД\n"
+        "• <b>Армия Деникина:</b> +5 монет за бой | +5% к ранению\n"
+        "• <b>Армия Врангеля:</b> Щиты по 5 монет | Скип КД по 45 монет\n"
+        "• <b>Армия Юденича:</b> -15 мин КД | -5 к макс. фрагам\n"
+        "• <b>Армия Миллера:</b> Бусты по 50 монет | +15 мин КД\n"
+        "• <b>Дроздовцы:</b> 10% шанс на Х2 фраги | /attack стоит 25 монет\n"
+        "• <b>КОМУЧ:</b> Нападение на вас виснет +10м КД | 10% шанс x0.5 монет\n"
+        "• <b>Войско Донское:</b> -20 мин КД | +10% к ранению\n\n"
+        "🪖 <b>Базовые Классы:</b>\n"
+        "• <b>Пехота:</b> 1-20 фрагов, КД 60 мин, Шанс ранения 20%\n"
+        "• <b>Кавалерия:</b> 1-15 фрагов, КД 45 мин, Шанс ранения 10%",
+        parse_mode=ParseMode.HTML
     )
+
+# 👤 ПРОФИЛЬ
+@dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/profile', 'profile', 'профиль', 'паспорт')))
+async def profilecmd(message: types.Message):
+    userid = message.from_user.id
+    cursor.execute("SELECT kills, coins, army, class, shields, boost_atk, boost_coins FROM killers WHERE userid = ?", (userid,))
+    row = cursor.fetchone()
+    
+    kills = row[0] if row else 0
+    coins = row[1] if row else 0
+    army = row[2] if row else "Не выбран"
+    u_class = row[3] if row else "Пехота"
+    shields = row[4] if row else 0
+    b_atk = "✅ Активен (x2)" if row and row[5] else "❌ Нет"
+    b_coins = "✅ Активен (x2)" if row and row[6] else "❌ Нет"
+    
+    rank = get_rank(kills)
+    clean_name = message.from_user.first_name.replace("<", "&lt;").replace(">", "&gt;")
     
     await message.answer(
-        f"🚩 Твоя текущая армия: {currentarmy}\n\nВыбери армию, за которую будешь сражаться:",
-        reply_markup=kb
+        f"🪪 <b>ПАСПОРТ ГВАРДЕЙЦА</b>\n\n"
+        f"Боец: <b>{clean_name}</b>\n"
+        f"🎖 Звание: <b>{rank}</b>\n"
+        f"🪖 Класс: <b>{u_class}</b>\n"
+        f"🚩 Армия: <b>{army}</b>\n"
+        f"⚔️ Убито большевиков: <b>{kills}</b>\n"
+        f"💰 Монеты: <b>{coins}</b>\n\n"
+        f"🎒 <b>Инвентарь и Бусты:</b>\n"
+        f"🛡 Щиты от ранений: <b>{shields} шт.</b>\n"
+        f"⚡️ Буст Атаки: {b_atk}\n"
+        f"🪙 Буст Монет: {b_coins}",
+        parse_mode=ParseMode.HTML
     )
+
+# 🪖 ВЫБОР КЛАССА
+@dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/class', 'class', 'класс')))
+async def classcmd(message: types.Message):
+    kb = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text="🗡 Пехота (1-20 фрагов, КД 60м, Шанс ранения 20%)", callback_data="setclass_Пехота")],
+            [types.InlineKeyboardButton(text="🐎 Кавалерия (1-15 фрагов, КД 45м, Шанс ранения 10%)", callback_data="setclass_Кавалерия")]
+        ]
+    )
+    await message.answer("🪖 <b>Выбери свой класс войск:</b>", reply_markup=kb, parse_mode=ParseMode.HTML)
+
+@dp.callback_query(lambda c: c.data and c.data.startswith('setclass_'))
+async def processclasschoice(callbackquery: types.CallbackQuery):
+    newclass = callbackquery.data.replace('setclass_', '')
+    userid = callbackquery.from_user.id
+    firstname = callbackquery.from_user.first_name
+    currenttime = int(time.time())
+    
+    cursor.execute("SELECT class, lastkill FROM killers WHERE userid = ?", (userid,))
+    row = cursor.fetchone()
+    
+    u_class = row[0] if row else "Пехота"
+    lastkill = row[1] if row else 0
+    
+    cooldown_sec = 2700 if u_class == "Кавалерия" else 3600
+    timepassed = currenttime - lastkill
+    
+    if timepassed < cooldown_sec:
+        timeleft = cooldown_sec - timepassed
+        minutes = timeleft // 60
+        seconds = timeleft % 60
+        await callbackquery.answer(
+            f"❌ Нельзя менять класс во время перезарядки!\nПодожди еще: {minutes} мин. {seconds} сек.", 
+            show_alert=True
+        )
+        return
+
+    cursor.execute(
+        "INSERT INTO killers (userid, firstname, class) VALUES (?, ?, ?) "
+        "ON CONFLICT(userid) DO UPDATE SET firstname = ?, class = ?", 
+        (userid, firstname, newclass, firstname, newclass)
+    )
+    conn.commit()
+    
+    await callbackquery.answer(f"Выбран класс: {newclass}!")
+    await callbackquery.message.edit_text(f"🪖 Теперь ты сражаешься как: <b>{newclass}</b>!", parse_mode=ParseMode.HTML)
+
+# ⚔️ АТАКА (KILL) С РАСЧЕТОМ БАФФОВ
+@dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/kill', 'kill', 'зарубить', 'рубить')))
+async def killcmd(message: types.Message):
+    userid = message.from_user.id
+    firstname = message.from_user.first_name
+    currenttime = int(time.time())
+    
+    cursor.execute("SELECT kills, coins, lastkill, army, class, shields, boost_atk, boost_coins FROM killers WHERE userid = ?", (userid,))
+    row = cursor.fetchone()
+    
+    kills = row[0] if row else 0
+    coins = row[1] if row else 0
+    lastkill = row[2] if row else 0
+    army = row[3] if row else "Не выбран"
+    u_class = row[4] if row else "Пехота"
+    shields = row[5] if row else 0
+    b_atk = row[6] if row else 0
+    b_coins = row[7] if row else 0
+    
+    # БАЗОВЫЕ НАСТРОЙКИ КЛАССОВ
+    cooldown_sec = 2700 if u_class == "Кавалерия" else 3600
+    injury_chance = 10 if u_class == "Кавалерия" else 20
+    max_kills = 15 if u_class == "Кавалерия" else 20
+    bonus_coins = 0
+
+    # 🚩 ПРИМЕНЕНИЕ БАФФОВ И ДЕБАФФОВ АРМИЙ
+    if army == "Армия Колчака":
+        injury_chance -= 5
+        cooldown_sec += 600 # +10 мин
+    elif army == "Армия Деникина":
+        bonus_coins += 5
+        injury_chance += 5
+    elif army == "Армия Юденича":
+        cooldown_sec -= 900 # -15 мин
+        max_kills = max(1, max_kills - 5)
+    elif army == "Армия Миллера":
+        cooldown_sec += 900 # +15 мин
+    elif army == "Войско Донское":
+        cooldown_sec -= 600 # -10 мин
+        injury_chance += 10
+
+    # Ограничиваем шанс ранения от 0% до 100%
+    injury_chance = max(0, min(100, injury_chance))
+
+    timepassed = currenttime - lastkill
+    if timepassed < cooldown_sec:
+        timeleft = cooldown_sec - timepassed
+        minutes = timeleft // 60
+        seconds = timeleft % 60
+        await message.answer(f"⏳ Шашка затупилась! Отдохни ещё <b>{minutes}</b> мин. <b>{seconds}</b> сек.", parse_mode=ParseMode.HTML)
+        return
+
+    is_injured = random.randint(1, 100) <= injury_chance
+    
+    if is_injured:
+        if shields > 0:
+            shields -= 1
+            cursor.execute("UPDATE killers SET shields = ? WHERE userid = ?", (shields, userid))
+            conn.commit()
+            await message.answer("🛡 <b>Вас пытались ранить в бою!</b> Но ваш Щит принял удар на себя и сломался!", parse_mode=ParseMode.HTML)
+        else:
+            penalty_time = currenttime + 1200
+            cursor.execute("INSERT INTO killers (userid, firstname, lastkill) VALUES (?, ?, ?) ON CONFLICT(userid) DO UPDATE SET lastkill = ?", (userid, firstname, penalty_time, penalty_time))
+            conn.commit()
+            await message.answer("🩸 <b>ВАШЕ БОЕВОЕ РАНЕНИЕ!</b>\nВы получили ранение в вылазке! Фраги не получены, а к кулдауну прибавлено +20 минут забинтовать раны!", parse_mode=ParseMode.HTML)
+            return
+
+    gainedkills = random.randint(1, max_kills)
+    
+    # 🦅 Бафф Дроздовцев: 10% шанс убить в два раза больше
+    is_drozd_crit = False
+    if army == "Дроздовская дивизия" and random.randint(1, 100) <= 10:
+        gainedkills *= 2
+        is_drozd_crit = True
+
+    if b_atk == 1:
+        gainedkills *= 2
+        
+    gainedcoins = gainedkills + bonus_coins
+
+    # 📜 Дебафф КОМУЧа: 10% шанс получить в 2 раза меньше монет
+    is_komuch_debuff = False
+    if army == "Армия КОМУЧа" and random.randint(1, 100) <= 10:
+        gainedcoins = max(1, gainedcoins // 2)
+        is_komuch_debuff = True
+
+    if b_coins == 1:
+        gainedcoins *= 2
+        
+    old_rank = get_rank(kills)
+    new_total_kills = kills + gainedkills
+    new_rank = get_rank(new_total_kills)
+
+    cursor.execute("""
+        INSERT INTO killers (userid, firstname, kills, coins, lastkill, army, class, boost_atk, boost_coins) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0) 
+        ON CONFLICT(userid) DO UPDATE SET 
+            firstname = ?, kills = kills + ?, coins = coins + ?, lastkill = ?, boost_atk = 0, boost_coins = 0""", (userid, firstname, gainedkills, gainedcoins, currenttime, army, u_class, firstname, gainedkills, gainedcoins, currenttime))
+    conn.commit()
+    
+    msg_text = f"⚔️ Взмах шашки! Вы зарубили <b>{gainedkills}</b> большевиков!\n💰 Получено монет: <b>+{gainedcoins}</b>"
+    if is_drozd_crit: msg_text += "\n🦅 <b>ПСИХИЧЕСКАЯ АТАКА!</b> Дроздовский бафф удвоил ваши фраги!"
+    if is_komuch_debuff: msg_text += "\n📜 <b>НАЛОГИ КОМУЧа!</b> Вы получили в 2 раза меньше монет за вылазку!"
+    if b_atk: msg_text += "\n⚡️ (Сработал Буст Атаки x2!)"
+    if b_coins: msg_text += "\n🪙 (Сработал Буст Монет x2!)"
+    
+    if old_rank != new_rank:
+        msg_text += f"\n\n🎉 <b>ПОЗДРАВЛЯЕМ С ПОВЫШЕНИЕМ!</b>\nВам присвоено новое звание: <b>{new_rank}</b>!"
+    
+    await message.answer(msg_text, parse_mode=ParseMode.HTML)
+
+# 🛒 МАГАЗИН (С РАСЧЕТОМ БАФФОВ ВРАНГЕЛЯ И МИЛЛЕРА)
+@dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/shop', 'shop', 'магазин', 'лавка')))
+async def shopcmd(message: types.Message):
+    userid = message.from_user.id
+    cursor.execute("SELECT army FROM killers WHERE userid = ?", (userid,))
+    row = cursor.fetchone()
+    army = row[0] if row else "Не выбран"
+
+    # Динамические цены магазина под армию
+    shield_price = 5 if army == "Армия Врангеля" else 10
+    skip_price = 45 if army == "Армия Врангеля" else 40
+    boost_price = 50 if army == "Армия Миллера" else 60
+
+    kb = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text=f"⏳ Скип кулдауна ({skip_price} монет)", callback_data="buy_skip")],
+            [types.InlineKeyboardButton(text=f"🛡 Щит от ранений/атак ({shield_price} монет)", callback_data="buy_shield")],
+            [types.InlineKeyboardButton(text=f"⚡️ Усилитель атаки x2 ({boost_price} монет)", callback_data="buy_batk")],
+            [types.InlineKeyboardButton(text=f"💰 Усилитель монет x2 ({boost_price} монет)", callback_data="buy_bcoins")]
+        ]
+    )
+    await message.answer("🛒 <b>ПОЛКОВАЯ ЛАВКА И МАГАЗИН:</b>\n\nВыбери предмет для покупки:", reply_markup=kb, parse_mode=ParseMode.HTML)
+
+@dp.callback_query(lambda c: c.data and c.data.startswith('buy_'))
+async def processbuy(callbackquery: types.CallbackQuery):
+    item = callbackquery.data.replace('buy_', '')
+    userid = callbackquery.from_user.id
+    
+    cursor.execute("SELECT coins, shields, boost_atk, boost_coins, army FROM killers WHERE userid = ?", (userid,))
+    row = cursor.fetchone()
+    coins = row[0] if row else 0
+    army = row[4] if row else "Не выбран"
+    
+    shield_price = 5 if army == "Армия Врангеля" else 10
+    skip_price = 45 if army == "Армия Врангеля" else 40
+    boost_price = 50 if army == "Армия Миллера" else 60
+
+    if item == "skip":
+        if coins < skip_price:
+            await callbackquery.answer(f"❌ Не хватает монет! Нужно {skip_price} монет.", show_alert=True)
+            return
+        cursor.execute("UPDATE killers SET coins = coins - ?, lastkill = 0 WHERE userid = ?", (skip_price, userid))
+        conn.commit()
+        await callbackquery.answer("✅ Кулдаун успешно сброшен! Можешь идти в атаку!", show_alert=True)
+        
+    elif item == "shield":
+        if coins < shield_price:
+            await callbackquery.answer(f"❌ Не хватает монет! Нужно {shield_price} монет.", show_alert=True)
+            return
+        cursor.execute("UPDATE killers SET coins = coins - ?, shields = shields + 1 WHERE userid = ?", (shield_price, userid))
+        conn.commit()
+        await callbackquery.answer("🛡 Ты купил 1 Щит!", show_alert=True)
+        
+    elif item == "batk":
+        if coins < boost_price:
+            await callbackquery.answer(f"❌ Не хватает монет! Нужно {boost_price} монет.", show_alert=True)
+            return
+        cursor.execute("UPDATE killers SET coins = coins - ?, boost_atk = 1 WHERE userid = ?", (boost_price, userid))
+        conn.commit()
+        await callbackquery.answer("⚡️ Усилитель атаки x2 куплен на следующий бой!", show_alert=True)
+
+    elif item == "bcoins":
+        if coins < boost_price:
+            await callbackquery.answer(f"❌ Не хватает монет! Нужно {boost_price} монет.", show_alert=True)
+            return
+        cursor.execute("UPDATE killers SET coins = coins - ?, boost_coins = 1 WHERE userid = ?", (boost_price, userid))
+        conn.commit()
+        await callbackquery.answer("💰 Усилитель монет x2 куплен на следующий бой!", show_alert=True)
+# ⚔️ НАПАДЕНИЕ (PVP) С УЧЕТОМ ДРОЗДОВЦЕВ И КОМУЧА
+@dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/attack', 'attack', 'напасть')))
+async def attackcmd(message: types.Message):
+    if not message.reply_to_message:
+        await message.answer("⚠️ Чтобы напасть на игрока, ответьте (Reply) командой /attack на его сообщение!", parse_mode=ParseMode.HTML)
+        return
+
+    attacker_id = message.from_user.id
+    target_id = message.reply_to_message.from_user.id
+    
+    if attacker_id == target_id:
+        await message.answer("Ты не можешь напасть сам на себя!", parse_mode=ParseMode.HTML)
+        return
+
+    cursor.execute("SELECT coins, army FROM killers WHERE userid = ?", (attacker_id,))
+    row_att = cursor.fetchone()
+    att_coins = row_att[0] if row_att else 0
+    att_army = row_att[1] if row_att else "Не выбран"
+    
+    # 🦅 Бафф/Дебафф Дроздовцев: /attack стоит 25 монет вместо 15
+    attack_cost = 25 if att_army == "Дроздовская дивизия" else 15
+
+    if att_coins < attack_cost:
+        await message.answer(f"❌ Нападение стоит {attack_cost} монет! У тебя недостаточно средств.", parse_mode=ParseMode.HTML)
+        return
+
+    cursor.execute("SELECT shields, lastkill, army FROM killers WHERE userid = ?", (target_id,))
+    row_tar = cursor.fetchone()
+    tar_shields = row_tar[0] if row_tar else 0
+    tar_lastkill = row_tar[1] if row_tar else 0
+    tar_army = row_tar[2] if row_tar else "Не выбран"
+
+    cursor.execute("UPDATE killers SET coins = coins - ? WHERE userid = ?", (attack_cost, attacker_id))
+
+    target_name = message.reply_to_message.from_user.first_name.replace("<", "&lt;").replace(">", "&gt;")
+
+    if tar_shields > 0:
+        cursor.execute("UPDATE killers SET shields = shields - 1 WHERE userid = ?", (target_id,))
+        conn.commit()
+        await message.answer(f"🛡 <b>НАПАДЕНИЕ ОТБИТО!</b> Вы напали на <b>{target_name}</b>, но у него был ЩИТ! Нападение провалилось, щит жертвы сломан.", parse_mode=ParseMode.HTML)
+    else:
+        currenttime = int(time.time())
+        # 📜 Бафф КОМУЧа: Нападение даёт всего +10 минут КД (вместо +20)
+        penalty_sec = 600 if tar_army == "Армия КОМУЧа" else 1200
+        new_kd = max(currenttime, tar_lastkill) + penalty_sec
+        cursor.execute("UPDATE killers SET lastkill = ? WHERE userid = ?", (new_kd, target_id))
+        conn.commit()
+        min_added = penalty_sec // 60
+        await message.answer(f"⚔️ <b>УСПЕШНАЯ ВЫЛАЗКА!</b> Вы напали на <b>{target_name}</b> и повесили ему +{min_added} минут к кулдауну!", parse_mode=ParseMode.HTML)
+
+# 🚩 ВЫБОР АРМИИ (С КРАСИВЫМ ОПИСАНИЕМ БАФФОВ)
+@dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/army', 'army', 'армия')))
+async def armycmd(message: types.Message):
+    kb = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text="❄️ Армия Колчака (-5% ранение | +10м КД)", callback_data="set_Армия Колчака")],
+            [types.InlineKeyboardButton(text="⚜️ Армия Деникина (+5 монет за бой | +5% ранение)", callback_data="set_Армия Деникина")],
+            [types.InlineKeyboardButton(text="🛡 Армия Врангеля (Щит 5 монет | СкипКД 45 монет)", callback_data="set_Армия Врангеля")],
+            [types.InlineKeyboardButton(text="⚔️ Армия Юденича (-15м КД | -5 макс. фрагов)", callback_data="set_Армия Юденича")],
+            [types.InlineKeyboardButton(text="🌲 Армия Миллера (Бусты 50 монет | +15м КД)", callback_data="set_Армия Миллера")],
+            [types.InlineKeyboardButton(text="🦅 Дроздовская дивизия (10% Крит X2 | /attack 25м)", callback_data="set_Дроздовская дивизия")],
+            [types.InlineKeyboardButton(text="📜 Армия КОМУЧа (+10м КД при атаке | 10% x0.5 монет)", callback_data="set_Армия КОМУЧа")],
+            [types.InlineKeyboardButton(text="🐎 Войско Донское (-10 КД | +10% ранение)", callback_data="set_Войско Донское")]
+        ]
+    )
+    await message.answer("🚩 <b>Выбери Белую Армию (у каждой свои уникальные баффы и дебаффы!):</b>", reply_markup=kb, parse_mode=ParseMode.HTML)
 
 @dp.callback_query(lambda c: c.data and c.data.startswith('set_'))
 async def processarmychoice(callbackquery: types.CallbackQuery):
@@ -66,116 +561,162 @@ async def processarmychoice(callbackquery: types.CallbackQuery):
     conn.commit()
     
     await callbackquery.answer(f"Ты вступил в: {armyname}!")
-    await callbackquery.message.edit_text(f"⚔️ Отлично! Теперь ты сражаешься за: {armyname}!")
+    await callbackquery.message.edit_text(f"⚔️ Отлично! Теперь ты сражаешься за: <b>{armyname}</b>!", parse_mode=ParseMode.HTML)
 
-@dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/kill', 'kill', 'зарубить', 'рубить')))
-async def killcmd(message: types.Message):
+# 👥 СОСТАВ АРМИИ
+@dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/sostav', 'sostav', 'состав')))
+async def sostavcmd(message: types.Message):
     userid = message.from_user.id
-    firstname = message.from_user.first_name
-    currenttime = int(time.time())
-    
-    cursor.execute("SELECT kills, lastkill, army FROM killers WHERE userid = ?", (userid,))
+    cursor.execute("SELECT army FROM killers WHERE userid = ?", (userid,))
     row = cursor.fetchone()
     
-    kills = row[0] if row else 0
-    lastkill = row[1] if row else 0
-    army = row[2] if row else "Не выбран"
-    
-    timepassed = currenttime - lastkill
-    if timepassed < KILLCOOLDOWN:
-        timeleft = KILLCOOLDOWN - timepassed
-        if timeleft >= 3600:
-            hours = timeleft // 3600
-            minutes = (timeleft % 3600) // 60
-            timestr = f"{hours} ч. {minutes} мин."
-        elif timeleft >= 60:
-            minutes = timeleft // 60
-            seconds = timeleft % 60
-            timestr = f"{minutes} мин. {seconds} сек."
-        else:
-            timestr = f"{timeleft} сек."
-
-        await message.answer(f"⏳ Шашка затупилась! Отдохни ещё {timestr} перед следующим набегом.")
+    if not row or row[0] == "Не выбран":
+        await message.answer("Ты еще не выбрал армию! Напиши /army, чтобы примкнуть к полку.", parse_mode=ParseMode.HTML)
         return
+        
+    armyname = row[0]
+    cursor.execute("SELECT firstname, kills, userid FROM killers WHERE army = ? ORDER BY kills DESC LIMIT 20", (armyname,))
+    members = cursor.fetchall()
+    
+    text = f"👥 <b>СОСТАВ ПОЛКА [{armyname}]:</b>\n\n"
+    for index, (name, kills, member_id) in enumerate(members, start=1):
+        player_name = name.replace("<", "&lt;").replace(">", "&gt;") if name else f"Казак {member_id}"
+        rank = get_rank(kills)
+        text += f"{index}. <b>{player_name}</b> ({rank}) — <b>{kills}</b> фрагов\n"
+        
+    await message.answer(text, parse_mode=ParseMode.HTML)
 
-    gainedkills = random.randint(1, 15)
-    newtotal = kills + gainedkills
-    
-    cursor.execute("INSERT INTO killers (userid, firstname, kills, lastkill, army) VALUES (?, ?, ?, ?, ?) ON CONFLICT(userid) DO UPDATE SET firstname = ?, kills = kills + ?, lastkill = ?", (userid, firstname, gainedkills, currenttime, army, firstname, gainedkills, currenttime))
-    conn.commit()
-    
-    phrases = [
-        f"⚔️ Вы выехали в поле и зарубили {gainedkills} большевиков!",
-        f"🪓 Взмах шашки! Минус {gainedkills} большевиков!",
-        f"🐎 Удачная засада! Зарублено {gainedkills} большевиков!"
-    ]
-    randomphrase = random.choice(phrases)
-    
-    await message.answer(f"{randomphrase}\n\n🚩 Твоя армия: {army}\n📊 Всего тобой зарублено: {newtotal}")
-
+# 🏆 ТОП
 @dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/top', 'top', 'топ')))
 async def topcmd(message: types.Message):
-    cursor.execute("SELECT firstname, kills, userid, army FROM killers ORDER BY kills DESC LIMIT 10")
+    cursor.execute("SELECT firstname, kills, army FROM killers ORDER BY kills DESC LIMIT 10")
     topusers = cursor.fetchall()
     
-    if not topusers:
-        await message.answer("В топе пока пусто! Напиши 'зарубить', чтобы стать первым!")
-        return
-        
-    text = "🏆 Топ лучших гвардейцев:\n\n"
+    text = "🏆 <b>Топ лучших гвардейцев:</b>\n\n"
     medals = ["🥇", "🥈", "🥉"]
-    
-    for index, (name, kills, userid, army) in enumerate(topusers, start=1):
+    for index, (name, kills, army) in enumerate(topusers, start=1):
         place = medals[index-1] if index <= 3 else f"{index}."
-        playername = name if name else f"Казак {userid}"
         armyinfo = f" [{army}]" if army and army != 'Не выбран' else ""
-        text += f"{place} {playername}{armyinfo} — {kills} большевиков\n"
+        player_name = name.replace("<", "&lt;").replace(">", "&gt;") if name else "Неизвестный"
+        rank = get_rank(kills)
+        text += f"{place} <b>{player_name}</b>{armyinfo} — {rank} (<b>{kills}</b> фрагов)\n"
         
-    await message.answer(text)
+    await message.answer(text, parse_mode=ParseMode.HTML)
 
-@dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/armies', 'armies', 'армии', 'отряды')))
+# 📊 АРМИИ
+@dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/armies', 'armies', 'армии')))
 async def armiescmd(message: types.Message):
+    cursor.execute("SELECT SUM(kills) FROM killers")
+    total_all_kills = cursor.fetchone()[0] or 0
+
     cursor.execute("SELECT army, SUM(kills) as totalkills FROM killers WHERE army != 'Не выбран' GROUP BY army ORDER BY totalkills DESC")
     armiestop = cursor.fetchall()
     
-    if not armiestop:
-        await message.answer("Пока ни одна армия не вступила в бой! Выбери армию командой /army и сделай первый замах!")
-        return
-        
-    text = "📊 РЕЙТИНГ БЕЛЫХ АРМИЙ:\n\n"
+    text = f"📊 <b>ОБЩАЯ СТАТИСТИКА ФРОНТА:</b>\n💀 Всего убито большевиков: <b>{total_all_kills}</b>\n\n🚩 <b>РЕЙТИНГ АРМИЙ:</b>\n\n"
     medals = ["🥇", "🥈", "🥉"]
-    
     for index, (armyname, totalkills) in enumerate(armiestop, start=1):
         place = medals[index-1] if index <= 3 else f"{index}."
-        text += f"{place} {armyname} — {totalkills} большевиков\n"
+        text += f"{place} <b>{armyname}</b> — <b>{totalkills}</b> большевиков\n"
         
-    await message.answer(text)
+    await message.answer(text, parse_mode=ParseMode.HTML)
+# 👑 АДМИН-КОМАНДА: Полный Бан Твинка (/ban @username или ответом)
+@dp.message(Command("ban"))
+async def admin_ban_user(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
 
-# Независимый сервер для пинга
-async def handle_ping(request):
-    return web.Response(text="Bot is running!")
+    args = message.text.split()
+    if len(args) >= 2 and args[1].startswith("@"):
+        username_target = args[1].replace("@", "").lower()
+        cursor.execute("SELECT userid, firstname FROM killers WHERE LOWER(firstname) = ?", (username_target,))
+        row = cursor.fetchone()
+        if not row:
+            await message.answer(f"❌ Игрок @{username_target} не найден!", parse_mode=ParseMode.HTML)
+            return
+        target_id, target_name = row[0], row[1]
+    elif message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        target_name = message.reply_to_message.from_user.first_name
+    else:
+        await message.answer("⚠️ Укажите @username или ответьте на сообщение твинка!", parse_mode=ParseMode.HTML)
+        return
 
-async def run_bot():
-    await dp.start_polling(bot)
+    cursor.execute("UPDATE killers SET lastkill = 2000000000, coins = 0, kills = 0 WHERE userid = ?", (target_id,))
+    conn.commit()
 
-async def run_web():
-    app = web.Application()
-    app.router.add_get('/', handle_ping)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 10000))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    # Бесконечно удерживаем сервер
-    await asyncio.Event().wait()
+    clean_name = target_name.replace("<", "&lt;").replace(">", "&gt;")
+    await message.answer(f"🔨 <b>ТВИНК ОБНАРУЖЕН И ЗАБАНЕН!</b>\nБоец <b>{clean_name}</b> обнулен и отправлен в трибунал!", parse_mode=ParseMode.HTML)
+
+# 👑 АДМИН-КОМАНДА: Разбан / Помилование (/pardon @username или ответом)
+@dp.message(Command("pardon"))
+async def admin_unban_user(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    args = message.text.split()
+    if len(args) >= 2 and args[1].startswith("@"):
+        username_target = args[1].replace("@", "").lower()
+        cursor.execute("SELECT userid, firstname FROM killers WHERE LOWER(firstname) = ?", (username_target,))
+        row = cursor.fetchone()
+        if not row:
+            await message.answer(f"❌ Игрок @{username_target} не найден!", parse_mode=ParseMode.HTML)
+            return
+        target_id, target_name = row[0], row[1]
+    elif message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        target_name = message.reply_to_message.from_user.first_name
+    else:
+        return
+
+    cursor.execute("UPDATE killers SET lastkill = 0 WHERE userid = ?", (target_id,))
+    conn.commit()
+
+    clean_name = target_name.replace("<", "&lt;").replace(">", "&gt;")
+    await message.answer(f"🕊 <b>ПОМИЛОВАНИЕ:</b> С бойца <b>{clean_name}</b> сняты все ограничения!", parse_mode=ParseMode.HTML)
+
+# 👑 АДМИН-КОМАНДА: Досье / Проверка (/check @username или ответом)
+@dp.message(Command("check"))
+async def admin_check_user(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    args = message.text.split()
+    if len(args) >= 2 and args[1].startswith("@"):
+        username_target = args[1].replace("@", "").lower()
+        cursor.execute("SELECT userid, firstname, kills, coins, army, class, lastkill FROM killers WHERE LOWER(firstname) = ?", (username_target,))
+        row = cursor.fetchone()
+    elif message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        cursor.execute("SELECT userid, firstname, kills, coins, army, class, lastkill FROM killers WHERE userid = ?", (target_id,))
+        row = cursor.fetchone()
+    else:
+        return
+
+    if not row:
+        await message.answer("❌ Игрок не найден в базе данных!", parse_mode=ParseMode.HTML)
+        return
+
+    u_id, u_name, u_kills, u_coins, u_army, u_class, u_last = row
+    clean_name = u_name.replace("<", "&lt;").replace(">", "&gt;") if u_name else "Без имени"
+    rank = get_rank(u_kills)
+
+    await message.answer(
+        f"🔍 <b>ДОСЬЕ РАЗВЕДКИ:</b>\n\n"
+        f"👤 Имя: <b>{clean_name}</b>\n"
+        f"🎖 Звание: <b>{rank}</b>\n"f"🆔 Telegram ID: <code>{u_id}</code>\n"
+        f"⚔️ Фраги: <b>{u_kills}</b> | 🪙 Монеты: <b>{u_coins}</b>\n"
+        f"🚩 Армия: <b>{u_army}</b> | 🪖 Класс: <b>{u_class}</b>\n"
+        f"⏳ Unix-Кулдаун: <code>{u_last}</code>",
+        parse_mode=ParseMode.HTML
+    )
 
 async def main():
     logging.basicConfig(level=logging.INFO)
-    # Запускаем бота и веб-сервер параллельно в двух независимых задачах
-    await asyncio.gather(
-        run_web(),
-        run_bot()
-    )
+    await setup_bot_commands(bot)
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+

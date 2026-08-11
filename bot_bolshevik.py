@@ -15,7 +15,11 @@ ADMIN_IDS = [8203948836]
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-conn = sqlite3.connect("bolsheviks_main.db")
+import os
+
+# Автоматический выбор: постоянный диск Render или локальный файл на ПК
+db_path = os.getenv("DATABASE_URL", "bolsheviks_main.db")
+conn = sqlite3.connect(db_path, check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""

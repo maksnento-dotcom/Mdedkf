@@ -260,8 +260,7 @@ async def shopcmd(message: types.Message):
     userid = message.from_user.id
     cursor.execute("SELECT army FROM killers WHERE userid = ?", (userid,))
     row = cursor.fetchone()
-    army = row[0]
-if row else "Не выбран"
+    army = row[0] if row else "Не выбран"
 
     shield_price = 5 if army == "Армия Врангеля" else 10
     skip_price = 45 if army == "Армия Врангеля" else 40

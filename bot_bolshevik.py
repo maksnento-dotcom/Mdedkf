@@ -8,7 +8,8 @@ from aiogram.filters import Command
 from aiogram.types import BotCommand
 from aiogram.enums import ParseMode
 
-TOKEN = "7670984180:AAGY0R3aA0YyR_q7mY7Y8GkU5U8mN3Zz1xY"
+# ВСТАВЬ СЮДА СВОЙ ТОКЕН ИЗ BOTFATHER
+TOKEN = "8725576726:AAFHu7OsEKnLMvXLo4-xqz4txSFCRRwGb7w"
 ADMIN_IDS = [8203948836]
 
 bot = Bot(token=TOKEN)
@@ -81,8 +82,7 @@ async def helpcmd(message: types.Message):
         "📖 <b>ИНСТРУКЦИЯ И СПРАВКА ПО ИГРЕ</b>\n\n"
         "⚔️ <b>Атака (/kill):</b> Зарубите большевиков и получите монеты!\n\n"
         "🚩 <b>ТАКТИЧЕСКИЕ БАФФЫ АРМИЙ (/army):</b>\n"
-        "• <b>Армия Колчака:</b> -5% к ранению | +10 мин КД\n"
-        "• <b>Армия Деникина:</b> +5 монет за бой | +5% к ранению\n"
+        "• <b>Армия Колчака:</b> -5% к ранению | +10 мин КД\n""• <b>Армия Деникина:</b> +5 монет за бой | +5% к ранению\n"
         "• <b>Армия Врангеля:</b> Щиты по 5 монет | Скип КД по 45 монет\n"
         "• <b>Армия Юденича:</b> -15 мин КД | -5 к макс. фрагам\n"
         "• <b>Армия Миллера:</b> Бусты по 50 монет | +15 мин КД\n"
@@ -94,9 +94,9 @@ async def helpcmd(message: types.Message):
         "• <b>Кавалерия:</b> 1-15 фрагов, КД 45 мин, Шанс ранения 10%",
         parse_mode=ParseMode.HTML
     )
+
 @dp.message(lambda msg: msg.text and msg.text.lower().startswith(('/profile', 'profile', 'профиль', 'паспорт')))
 async def profilecmd(message: types.Message):
-
     userid = message.from_user.id
     cursor.execute("SELECT kills, coins, army, class, shields, boost_atk, boost_coins FROM killers WHERE userid = ?", (userid,))
     row = cursor.fetchone()
@@ -260,7 +260,8 @@ async def shopcmd(message: types.Message):
     userid = message.from_user.id
     cursor.execute("SELECT army FROM killers WHERE userid = ?", (userid,))
     row = cursor.fetchone()
-    army = row[0] if row else "Не выбран"
+    army = row[0]
+if row else "Не выбран"
 
     shield_price = 5 if army == "Армия Врангеля" else 10
     skip_price = 45 if army == "Армия Врангеля" else 40
@@ -451,3 +452,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+

@@ -9,7 +9,7 @@ from aiogram.filters import Command
 from aiogram.types import BotCommand
 from aiogram.enums import ParseMode
 
-TOKEN = "7670984180:AAGY0R3aA0YyR_q7mY7Y8GkU5U8mN3Zz1xY"
+TOKEN = "8725576726:AAFHu7OsEKnLMvXLo4-xqz4txSFCRRwGb7w"
 ADMIN_IDS = [8203948836]
 
 bot = Bot(token=TOKEN)

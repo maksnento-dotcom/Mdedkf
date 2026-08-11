@@ -3,23 +3,33 @@ import logging
 import random
 import sqlite3
 import time
+from aiohttp import web
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import BotCommand
 from aiogram.enums import ParseMode
 
-# ВСТАВЬ СЮДА СВОЙ ТОКЕН ИЗ BOTFATHER
-TOKEN = "8725576726:AAFHu7OsEKnLMvXLo4-xqz4txSFCRRwGb7w"
+TOKEN = "7670984180:AAGY0R3aA0YyR_q7mY7Y8GkU5U8mN3Zz1xY"
 ADMIN_IDS = [8203948836]
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-import os
+# --- ВЕБ-СЕРВЕР ДЛЯ БУДИЛЬНИКА (UPTIMEROBOT) ---
+async def handle_ping(request):
+    return web.Response(text="Bot is alive and running!")
 
-# Автоматический выбор: постоянный диск Render или локальный файл на ПК
-db_path = os.getenv("DATABASE_URL", "bolsheviks_main.db")
-conn = sqlite3.connect(db_path, check_same_thread=False)
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    # Render автоматически пробрасывает порт 10000 наружу
+    site = web.TCPSite(runner, "0.0.0.0", 10000)
+    await site.start()
+
+# --- БАЗА ДАННЫХ ---
+conn = sqlite3.connect("bolsheviks_main.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""
@@ -68,7 +78,7 @@ async def startcmd(message: types.Message):
     clean_name = message.from_user.first_name.replace("<", "&lt;").replace(">", "&gt;")
     await message.answer(
         f"Здорово, {clean_name}! ⚔️\n\n"
-        "Время очистить земли от большевиков!\n\n"
+        "Время очиститьземли от большевиков!\n\n"
         "📌 <b>Основные команды:</b>\n"
         "⚔️ /kill — Пойти в атаку\n"
         "👤 /profile — Профиль и звание\n"
@@ -86,7 +96,8 @@ async def helpcmd(message: types.Message):
         "📖 <b>ИНСТРУКЦИЯ И СПРАВКА ПО ИГРЕ</b>\n\n"
         "⚔️ <b>Атака (/kill):</b> Зарубите большевиков и получите монеты!\n\n"
         "🚩 <b>ТАКТИЧЕСКИЕ БАФФЫ АРМИЙ (/army):</b>\n"
-        "• <b>Армия Колчака:</b> -5% к ранению | +10 мин КД\n""• <b>Армия Деникина:</b> +5 монет за бой | +5% к ранению\n"
+        "• <b>Армия Колчака:</b> -5% к ранению | +10 мин КД\n"
+        "• <b>Армия Деникина:</b> +5 монет за бой | +5% к ранению\n"
         "• <b>Армия Врангеля:</b> Щиты по 5 монет | Скип КД по 45 монет\n"
         "• <b>Армия Юденича:</b> -15 мин КД | -5 к макс. фрагам\n"
         "• <b>Армия Миллера:</b> Бусты по 50 монет | +15 мин КД\n"
@@ -448,11 +459,57 @@ async def armiescmd(message: types.Message):
         
     await message.answer(text, parse_mode=ParseMode.HTML)
 
+# --- АДМИН-КОМАНДЫ ---
+@dp.message(Command("give"))
+async def admin_give_coins(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer("⚠️ Использование: `/give <количество>`", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    try:
+        amount = int(args[1])
+    except ValueError:
+        await message.answer("❌ Укажите число!")
+        return
+
+    target_id = message.from_user.id
+    target_name = message.from_user.first_name
+
+    if message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        target_name = message.reply_to_message.from_user.first_name
+
+    cursor.execute("""
+        INSERT INTO killers (userid, firstname, coins) VALUES (?, ?, ?)
+        ON CONFLICT(userid) DO UPDATE SET coins = coins + ?
+    """, (target_id, target_name, amount, amount))
+    conn.commit()
+
+    await message.answer(f"💰 Бойцу <b>{target_name}</b> начислено <b>+{amount}</b> монет!", parse_mode=ParseMode.HTML)
+
+@dp.message(Command("reset"))
+async def admin_reset_kd(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    target_id = message.from_user.id
+    if message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+
+    cursor.execute("UPDATE killers SET lastkill = 0 WHERE userid = ?", (target_id,))
+    conn.commit()
+
+    await message.answer("⚡️ <b>Кулдаун сброшен!</b>", parse_mode=ParseMode.HTML)
+
 async def main():
     logging.basicConfig(level=logging.INFO)
     await setup_bot_commands(bot)
+    asyncio.create_task(start_web_server())  # Запуск веб-сервера для пингера
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
